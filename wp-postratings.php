@@ -554,6 +554,30 @@ function process_ratings() {
                     update_post_meta($post_id, 'ratings_score', $post_ratings_score);
                     update_post_meta($post_id, 'ratings_average', $post_ratings_average);
 
+		    // Check if WPML is active, if so, update the meta for all the translations
+		    $wpml_post_ids = false;
+		    if ( defined( 'ICL_SITEPRESS_VERSION' ) ) {
+			// get all the translations
+			global $sitepress;
+			$trid = $sitepress->get_element_trid($post->ID);
+			$translations = $sitepress->get_element_translations($trid);
+
+			$wpml_post_ids = array();
+			foreach ($translations as $translation) {
+				$wpml_post_ids[] = $translation->element_id;
+			}
+
+			foreach ($wpml_post_ids as $wpml_post_id) {
+				// Don't update the language we already voted for again
+				if ($wpml_post_id != $post_id) {
+					update_post_meta($wpml_post_id, 'ratings_users', $post_ratings_users);
+					update_post_meta($wpml_post_id, 'ratings_score', $post_ratings_score);
+					update_post_meta($wpml_post_id, 'ratings_average', $post_ratings_average);
+				}
+			}
+		    }
+
+
                     // Add Log
                     if(!empty($user_identity)) {
                         $rate_user = addslashes($user_identity);
@@ -569,9 +593,30 @@ function process_ratings() {
                     $postratings_logging_method = intval(get_option('postratings_logging_method'));
                     if($postratings_logging_method == 1 || $postratings_logging_method == 3) {
                         $rate_cookie = setcookie("rated_".$post_id, $ratings_value[$rate-1], apply_filters('wp_postratings_cookie_expiration', (time() + 30000000) ), apply_filters('wp_postratings_cookiepath', SITECOOKIEPATH));
+                        
+                        // If we have WPML tranlsations, set cookies for those also
+                        if ($wpml_post_ids) {
+				foreach ($wpml_post_ids as $wpml_post_id) {
+					$rate_cookie = setcookie("rated_".$post_id, $ratings_value[$rate-1], apply_filters('wp_postratings_cookie_expiration', (time() + 30000000) ), apply_filters('wp_postratings_cookiepath', SITECOOKIEPATH));
+				}
+			}
+                        
                     }
                     // Log Ratings No Matter What
                     $rate_log = $wpdb->query( $wpdb->prepare( "INSERT INTO {$wpdb->ratings} VALUES (%d, %d, %s, %d, %d, %s, %s, %s, %d )", 0, $post_id, $post_title, $ratings_value[$rate-1], current_time('timestamp'), get_ipaddress(), @gethostbyaddr( get_ipaddress() ), $rate_user, $rate_userid ) );
+                    
+                    // If we have WPML tranlsations, save the log for the posts
+                    if ($wpml_post_ids) {
+				foreach ($wpml_post_ids as $wpml_post_id) {
+					// Don't add the log for the language we already voted for again
+					if ($wpml_post_id != $post_id) {
+						// Save the log for tranlsations
+						$rate_log = $wpdb->query($wpdb->prepare("INSERT INTO {$wpdb->ratings} VALUES (%d, %d, %s, %d, %d, %s, %s, %s, %d )", 0, $wpml_post_id, $post_title, $ratings_value[$rate - 1], current_time('timestamp'), get_ipaddress(), @gethostbyaddr(get_ipaddress()), $rate_user, $rate_userid));
+					}
+				}
+			}
+
+                    
                     // Allow Other Plugins To Hook When A Post Is Rated
                     do_action('rate_post', $rate_userid, $post_id, $ratings_value[$rate-1]);
                     // Output AJAX Result
